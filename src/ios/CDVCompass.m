@@ -6,9 +6,9 @@
  to you under the Apache License, Version 2.0 (the
  "License"); you may not use this file except in compliance
  with the License.  You may obtain a copy of the License at
-
+ 
  http://www.apache.org/licenses/LICENSE-2.0
-
+ 
  Unless required by applicable law or agreed to in writing,
  software distributed under the License is distributed on an
  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -67,16 +67,13 @@
 
 - (BOOL)hasHeadingSupport
 {
-    BOOL headingInstancePropertyAvailable = [self.locationManager respondsToSelector:@selector(headingAvailable)]; // iOS 3.x
-    BOOL headingClassPropertyAvailable = [CLLocationManager respondsToSelector:@selector(headingAvailable)]; // iOS 4.x
-
-    if (headingInstancePropertyAvailable) { // iOS 3.x
-        return [(id)self.locationManager headingAvailable];
-    } else if (headingClassPropertyAvailable) { // iOS 4.x
-        return [CLLocationManager headingAvailable];
-    } else { // iOS 2.x
-        return NO;
-    }
+#if __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_2_0
+    return NO;
+#elseif __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_3_0
+    return [(id)self.locationManager headingAvailable];
+#else
+    return [CLLocationManager headingAvailable];
+#endif
 }
 
 // called to get the current heading
@@ -87,7 +84,7 @@
     NSString* callbackId = command.callbackId;
     NSDictionary* options = [command argumentAtIndex:0 withDefault:nil];
     NSNumber* filter = [options valueForKey:@"filter"];
-
+    
     if (filter) {
         [self watchHeadingFilter:command];
         return;
@@ -101,13 +98,13 @@
             self.headingData = [[CDVHeadingData alloc] init];
         }
         CDVHeadingData* hData = self.headingData;
-
+        
         if (!hData.headingCallbacks) {
             hData.headingCallbacks = [NSMutableArray arrayWithCapacity:1];
         }
         // add the callbackId into the array so we can call back when get data
         [hData.headingCallbacks addObject:callbackId];
-
+        
         if ((hData.headingStatus != HEADINGRUNNING) && (hData.headingStatus != HEADINGERROR)) {
             // Tell the location manager to start notifying us of heading updates
             [self startHeadingWithFilter:0.2];
@@ -124,7 +121,7 @@
     NSDictionary* options = [command argumentAtIndex:0 withDefault:nil];
     NSNumber* filter = [options valueForKey:@"filter"];
     CDVHeadingData* hData = self.headingData;
-
+    
     if ([self hasHeadingSupport] == NO) {
         CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsInt:20];
         [self.commandDelegate sendPluginResult:result callbackId:callbackId];
@@ -155,9 +152,9 @@
 {
     CDVPluginResult* result = nil;
     CDVHeadingData* hData = self.headingData;
-
+    
     self.headingData.headingTimestamp = [NSDate date];
-
+    
     if (hData && (hData.headingStatus == HEADINGERROR)) {
         // return error
         result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsInt:0];
@@ -171,7 +168,7 @@
         id trueHeading = __locationStarted ? (id)[NSNumber numberWithDouble : hInfo.trueHeading] : (id)[NSNull null];
         [returnInfo setObject:trueHeading forKey:@"trueHeading"];
         [returnInfo setObject:[NSNumber numberWithDouble:hInfo.headingAccuracy] forKey:@"headingAccuracy"];
-
+        
         result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:returnInfo];
         [result setKeepCallbackAsBool:bRetain];
     }
@@ -198,6 +195,8 @@
 // helper method to check the orientation and start updating headings
 - (void)startHeadingWithFilter:(CLLocationDegrees)filter
 {
+    // FYI UIDeviceOrientation and CLDeviceOrientation enums are currently the same
+    self.locationManager.headingOrientation =  (CLDeviceOrientation) [[UIDevice currentDevice] orientation];
     self.locationManager.headingFilter = filter;
     [self.locationManager startUpdatingHeading];
     self.headingData.headingStatus = HEADINGSTARTING;
@@ -212,29 +211,29 @@
        didUpdateHeading:(CLHeading*)heading
 {
     CDVHeadingData* hData = self.headingData;
-
+    
     // normally we would clear the delegate to stop getting these notifications, but
     // we are sharing a CLLocationManager to get location data as well, so we do a nil check here
     // ideally heading and location should use their own CLLocationManager instances
     if (hData == nil) {
         return;
     }
-
+    
     // save the data for next call into getHeadingData
     hData.headingInfo = heading;
     BOOL bTimeout = NO;
     if (!hData.headingFilter && hData.headingTimestamp) {
         bTimeout = fabs([hData.headingTimestamp timeIntervalSinceNow]) > hData.timeout;
     }
-
+    
     if (hData.headingStatus == HEADINGSTARTING) {
         hData.headingStatus = HEADINGRUNNING; // so returnHeading info will work
-
+        
         // this is the first update
         for (NSString* callbackId in hData.headingCallbacks) {
             [self returnHeadingInfo:callbackId keepCallback:NO];
         }
-
+        
         [hData.headingCallbacks removeAllObjects];
     }
     if (hData.headingFilter) {
@@ -248,7 +247,7 @@
 - (void)locationManager:(CLLocationManager*)manager didFailWithError:(NSError*)error
 {
     NSLog(@"locationManager::didFailWithError %@", [error localizedFailureReason]);
-
+    
     // Compass Error
     if ([error code] == kCLErrorHeadingFailure) {
         CDVHeadingData* hData = self.headingData;
@@ -259,7 +258,7 @@
                     CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsInt:0];
                     [self.commandDelegate sendPluginResult:result callbackId:callbackId];
                 }
-
+                
                 [hData.headingCallbacks removeAllObjects];
             } // else for frequency watches next call to getCurrentHeading will report error
             if (hData.headingFilter) {
@@ -269,7 +268,7 @@
             hData.headingStatus = HEADINGERROR;
         }
     }
-
+    
     [self.locationManager stopUpdatingLocation];
     __locationStarted = NO;
 }
